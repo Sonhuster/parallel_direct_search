@@ -17,12 +17,12 @@ if __name__ == '__main__':
     algorithm = MultidirectionalSimplex(problem=problem,
                                         x0= np.array([0, 0]),
                                         initial_simplex=np.array([[0.0, 0.0], [0.25, 0.0], [0.25, 0.25]]),
-                                        bounds=[[-5, 5], [-5, 5]],
+                                        bounds=[[-5, -5], [5, 5]],
                                         n_dims_per_parallel_computing=2,
                                         n_jobs=1)
     algorithm.initialize()
-    for i in range(5):
-        algorithm.next_look_ahead_n_iterations(n_iters=2)
+    for i in range(10):
+        algorithm.next_look_ahead_n_iterations(n_iters=1)
         print("Time:", time.time() - ts, "| Error:", algorithm.history['v0'][-1].F)
 
     # for i in range(100):
