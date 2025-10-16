@@ -18,7 +18,6 @@ if __name__ == '__main__':
                                         x0= np.array([0, 0]),
                                         initial_simplex=np.array([[0.0, 0.0], [0.25, 0.0], [0.25, 0.25]]),
                                         bounds=[[-5, -5], [5, 5]],
-                                        n_dims_per_parallel_computing=2,
                                         n_jobs=1)
     algorithm.initialize()
     for i in range(10):

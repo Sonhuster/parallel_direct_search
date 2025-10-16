@@ -217,9 +217,9 @@ class MultidirectionalSimplex:
         self.sim = simplex.tolist()
 
     def initialize_template_for_n_iterations(self, n_iters=1):
-        order = np.argsort([vertex.F for vertex in self.sim])
-        simplex = np.array(self.sim)[order]
-        sim_x = np.array([vertex.X for vertex in simplex])
+        # order = np.argsort([vertex.F for vertex in self.sim])
+        # simplex = np.array(self.sim)[order]
+        # sim_x = np.array([vertex.X for vertex in simplex])
         # sim_x = np.array([vertex.X for vertex in self.sim]) # Hard core to simulate from best vertex = 0
         # fig, ax = plt.subplots()
 
