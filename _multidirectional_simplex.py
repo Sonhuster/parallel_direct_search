@@ -11,22 +11,25 @@ class MyProblem:
         self.n_var = n_var
         self.history = {'x': [], 'f': []}
 
-    def evaluate(self, x):
-        x = x.tolist()
+    def evaluate(self, x, repeat_detector=True):
+        if repeat_detector:
+            is_repeat, eval = self.detect_repeat_evaluation(x)
+            if is_repeat:
+                print('Detect repeat evaluation')
+                return eval
 
-        if len(self.history['x']) == 0:
-            self.history['x'].append(x)
-            self.history['f'].append(self.problem(x))
-            return self.history['f'][-1]
-        else:
-            if x in self.history['x']:
-                print('Repeat prediction detected')
-                idx = self.history['x'].index(x)
-                return self.history['f'][idx]
-            else:
-                self.history['x'].append(x)
-                self.history['f'].append(self.problem(x))
-                return self.history['f'][-1]
+        self.history['x'].append(x.tolist())
+        self.history['f'].append(self.problem(x))
+        return self.history['f'][-1]
+
+    def detect_repeat_evaluation(self, x):
+        x = x.tolist()
+        try:
+            idx = self.history['x'].index(x)
+            print('Detect repeat evaluation')
+            return True, self.history['f'][idx]
+        except ValueError:
+            return False, None
 
 
 class Individual:
@@ -146,7 +149,7 @@ class MultidirectionalSimplex:
         self.sim = [Individual.bounded(self.bounds, X=vertex) for vertex in sim]
 
         # Evaluate in parallel
-        if self.n_jobs <= 1 or self is None:
+        if self.n_jobs <= 1:
             self.sim = evals(self.problem, self.sim)
         else:
             chunk_idx = np.array_split(np.arange(len(self.sim)), self.n_jobs)
@@ -224,8 +227,6 @@ class MultidirectionalSimplex:
         sources = [source_root]
         alphas = [alpha_root]
 
-        best_v = np.array([-0.25, 0])
-        best_v_source = np.array([0.25, 0]) # Page 466 (v_source = best_v_source)
         for iter in range(n_iters):
             root_start = root
             root_end = len(coeffs)  # expand all current roots
@@ -285,6 +286,7 @@ class MultidirectionalSimplex:
         ax.scatter(sim_x[:, 0], sim_x[:, 1], c='red', label='Simplex Vertices')
         ax.legend()
         # plt.show()
+        plt.close(fig)
 
         self.template_coeffs['coeffs'] = coeffs
         self.template_coeffs['sources'] = sources
@@ -320,9 +322,18 @@ class MultidirectionalSimplex:
         duplicated_points = np.setdiff1d(np.arange(len(v_template)), unique_idx)
         print(f"Total evaluated vertices: {len(unique_idx)} with jumped iterations: {n_iters}")
 
-        # Evaluate all template points
-        all_individuals = [Individual.bounded(self.bounds, X=v) for v in v_template_unique]
-        all_individuals = evals(self.problem, all_individuals)
+        # Evaluate all template points (Pre-evaluation detection included)
+        all_individuals = np.array([Individual.bounded(self.bounds, X=v) for v in v_template_unique])
+        pre_eval_mask, pre_evals = np.vstack([self.problem.detect_repeat_evaluation(v.X) for v in all_individuals]).T
+        if np.any(pre_eval_mask.astype(bool)):
+            pre_eval_mask = pre_eval_mask.astype(bool)
+            eval_list =  all_individuals[~pre_eval_mask]
+            pre_inds_idx = np.where(pre_eval_mask)[0]
+
+            [setattr(all_individuals[idx], 'F', pre_evals[idx]) for idx in pre_inds_idx]
+            all_individuals[~pre_eval_mask] = evals(self.problem, eval_list, repeat_detector=False)
+        else:
+            all_individuals = evals(self.problem, all_individuals, repeat_detector=False)
         v0_idx = np.argmin([ind.F for ind in all_individuals])
         v0 = all_individuals[v0_idx]
 
@@ -331,7 +342,7 @@ class MultidirectionalSimplex:
             possible_source = [sources[true_idx]]
             possible_alpha = [alphas[true_idx]]
             for dup_idx in duplicated_points:
-                if np.allclose(v0.X, dup_idx):
+                if np.allclose(v0.X, v_template[dup_idx]):
                     if sources[dup_idx] not in possible_source:
                         possible_source.append(sources[dup_idx])
                         possible_alpha.append(alphas[dup_idx])
@@ -352,15 +363,16 @@ class MultidirectionalSimplex:
             self.sim = [Individual.bounded(self.bounds, X=vertex) for vertex in sim_x]
             self.sim = evals(self.problem, self.sim)
         self.history['v0'].append(v0)
-        self.history['sim'].append(all_individuals)
+        self.history['sim'].append(all_individuals.tolist())
         print("Best in template:", v0.X, v0.F)
 
-def evals(problem, individuals: np.ndarray|list|Individual):
-    def eval(problem, individual: Individual):
+
+def evals(problem, individuals: np.ndarray|list|Individual, repeat_detector=True):
+    def eval(problem, individual):
         if type(individual.X) is not np.ndarray or individual.X is None:
             raise 'Un-determined solution'
 
-        individual.F = problem.evaluate(individual.X)
+        individual.F = problem.evaluate(individual.X, repeat_detector=repeat_detector)
         print('Evaluate:', individual.X, '| Out:', individual.F)
         return individual
     if isinstance(individuals, Individual):
