@@ -148,16 +148,8 @@ class MultidirectionalSimplex:
 
         self.sim = [Individual.bounded(self.bounds, X=vertex) for vertex in sim]
 
-        # Evaluate in parallel
-        if self.n_jobs <= 1:
-            self.sim = evals(self.problem, self.sim)
-        else:
-            chunk_idx = np.array_split(np.arange(len(self.sim)), self.n_jobs)
-            fargs = [(self.problem, np.array(self.sim)[chunk]) for chunk in chunk_idx]
-            with Pool(processes=min(len(self.sim), self.n_jobs)) as pool:   # change number of workers as needed
-                evaluated_lists = pool.starmap(evals, fargs)
-                self.sim = sum(evaluated_lists, [])
-
+        # Evaluate
+        self.sim = evals_inparallel(self.problem, self.sim, n_jobs=self.n_jobs)
         order = np.argsort([vertex.F for vertex in self.sim])
         self.history['sim'].append(np.array(self.sim)[order].tolist())
         self.history['v0'].append(self.sim[order[0]])
@@ -331,9 +323,9 @@ class MultidirectionalSimplex:
             pre_inds_idx = np.where(pre_eval_mask)[0]
 
             [setattr(all_individuals[idx], 'F', pre_evals[idx]) for idx in pre_inds_idx]
-            all_individuals[~pre_eval_mask] = evals(self.problem, eval_list, repeat_detector=False)
+            all_individuals[~pre_eval_mask] = evals_inparallel(self.problem, eval_list, n_jobs=self.n_jobs, repeat_detector=False)
         else:
-            all_individuals = evals(self.problem, all_individuals, repeat_detector=False)
+            all_individuals = evals_inparallel(self.problem, all_individuals, n_jobs=self.n_jobs, repeat_detector=False)
         v0_idx = np.argmin([ind.F for ind in all_individuals])
         v0 = all_individuals[v0_idx]
 
@@ -363,8 +355,26 @@ class MultidirectionalSimplex:
             self.sim = [Individual.bounded(self.bounds, X=vertex) for vertex in sim_x]
             self.sim = evals(self.problem, self.sim)
         self.history['v0'].append(v0)
-        self.history['sim'].append(all_individuals.tolist())
+        self.history['sim'].append(all_individuals.tolist()) # TODO: FIX BUG
         print("Best in template:", v0.X, v0.F)
+
+
+def evals_inparallel(problem, individuals: np.ndarray|list|Individual, n_jobs=1, repeat_detector=True):
+    if n_jobs <= 1:
+        return evals(problem, individuals, repeat_detector=repeat_detector)
+    else:
+        if isinstance(individuals, Individual):
+            individuals = [individuals]
+        elif type(individuals) in [list, np.ndarray]:
+            individuals = list(individuals)
+        else:
+            raise 'Wrong argument passed'
+
+        chunk_idx = np.array_split(np.arange(len(individuals)), n_jobs)
+        fargs = [(problem, np.array(individuals)[chunk], repeat_detector) for chunk in chunk_idx]
+        with Pool(processes=min(len(individuals), n_jobs)) as pool:   # change number of workers as needed
+            evaluated_lists = pool.starmap(evals, fargs)
+            return sum(evaluated_lists, [])
 
 
 def evals(problem, individuals: np.ndarray|list|Individual, repeat_detector=True):
