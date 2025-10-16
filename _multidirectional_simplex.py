@@ -1,7 +1,6 @@
 import numpy as np
 from multiprocessing import Pool
 import copy
-import itertools
 import matplotlib.pyplot as plt
 
 # Define problem (2 variables)
@@ -15,18 +14,32 @@ class MyProblem:
         if repeat_detector:
             is_repeat, eval = self.detect_repeat_evaluation(x)
             if is_repeat:
-                print('Detect repeat evaluation')
                 return eval
 
         self.history['x'].append(x.tolist())
         self.history['f'].append(self.problem(x))
         return self.history['f'][-1]
 
+    def evaluate_batch(self, Inds, n_jobs=1):
+        pre_eval_mask, pre_evals_func = np.vstack([self.detect_repeat_evaluation(v.X) for v in Inds]).T
+        if np.any(pre_eval_mask.astype(bool)):
+            pre_eval_mask = pre_eval_mask.astype(bool)
+            pre_eval_list = Inds[~pre_eval_mask]
+            pre_inds_idx = np.where(pre_eval_mask)[0]
+
+            [setattr(Inds[idx], 'F', pre_evals_func[idx]) for idx in pre_inds_idx]
+            Inds[~pre_eval_mask] = evals_inparallel(self, pre_eval_list, n_jobs=n_jobs,
+                                                               repeat_detector=False)
+            Inds = Inds.tolist()
+        else:
+            Inds = evals_inparallel(self, Inds, n_jobs=n_jobs, repeat_detector=False)
+
+        return Inds
+
     def detect_repeat_evaluation(self, x):
         x = x.tolist()
         try:
             idx = self.history['x'].index(x)
-            print('Detect repeat evaluation')
             return True, self.history['f'][idx]
         except ValueError:
             return False, None
@@ -208,7 +221,7 @@ class MultidirectionalSimplex:
         simplex = np.array(self.sim)[order]
         sim_x = np.array([vertex.X for vertex in simplex])
         # sim_x = np.array([vertex.X for vertex in self.sim]) # Hard core to simulate from best vertex = 0
-        fig, ax = plt.subplots()
+        # fig, ax = plt.subplots()
 
         n_dim = len(self.sim[0].X)
         root = 0
@@ -239,8 +252,8 @@ class MultidirectionalSimplex:
                     sources.append(source_i)
                     alphas.append(alpha_i)
 
-                    new_v = sim_x[0] + np.sum(coeff_i[:, None] * sim_x, axis=0)
-                    ax.scatter(new_v[0], new_v[1], c='b')
+                    # new_v = sim_x[0] + np.sum(coeff_i[:, None] * sim_x, axis=0)
+                    # ax.scatter(new_v[0], new_v[1], c='b')
 
                 # Contraction vertices
                 for j in range(0, n_dim+1):
@@ -253,8 +266,8 @@ class MultidirectionalSimplex:
                     sources.append(source_i)
                     alphas.append(alpha_i)
 
-                    new_v = sim_x[0] + np.sum(coeff_i[:, None] * sim_x, axis=0)
-                    ax.scatter(new_v[0], new_v[1], c='b')
+                    # new_v = sim_x[0] + np.sum(coeff_i[:, None] * sim_x, axis=0)
+                    # ax.scatter(new_v[0], new_v[1], c='b')
 
                 # Expansion vertices
                 for j in range(0, n_dim+1):
@@ -269,16 +282,16 @@ class MultidirectionalSimplex:
                     sources.append(source_i)
                     alphas.append(alpha_i)
 
-                    new_v = sim_x[0] + np.sum(coeff_i[:, None] * sim_x, axis=0)
-                    ax.scatter(new_v[0], new_v[1], c='b')
+                    # new_v = sim_x[0] + np.sum(coeff_i[:, None] * sim_x, axis=0)
+                    # ax.scatter(new_v[0], new_v[1], c='b')
             if iter == 0:
                 coeffs.pop(0)
                 sources.pop(0)
                 alphas.pop(0)
-        ax.scatter(sim_x[:, 0], sim_x[:, 1], c='red', label='Simplex Vertices')
-        ax.legend()
-        # plt.show()
-        plt.close(fig)
+        # ax.scatter(sim_x[:, 0], sim_x[:, 1], c='red', label='Simplex Vertices')
+        # ax.legend()
+        # # plt.show()
+        # plt.close(fig)
 
         self.template_coeffs['coeffs'] = coeffs
         self.template_coeffs['sources'] = sources
@@ -287,6 +300,7 @@ class MultidirectionalSimplex:
     def next_look_ahead_n_iterations(self, n_iters=1):
         if self.template_coeffs['coeffs'] is None:
             self.initialize_template_for_n_iterations(n_iters=n_iters)
+
         coeffs = np.array(self.template_coeffs['coeffs'])
         sources = np.array(self.template_coeffs['sources'])
         alphas = np.array(self.template_coeffs['alphas'])
@@ -294,19 +308,11 @@ class MultidirectionalSimplex:
         order = np.argsort([vertex.F for vertex in self.sim])
         simplex = np.array(self.sim)[order]
         sim_x = np.array([vertex.X for vertex in simplex])
-        # sim_x = np.array([vertex.X for vertex in self.sim])
 
         v_template = []
         for coeff, source in zip(coeffs, sources):
             v_new = sim_x[0] + np.sum(coeff[:, None] * sim_x, axis=0)
             v_template.append(v_new)
-
-        fig, ax = plt.subplots()
-        ax.scatter(np.array(v_template)[:, 0], np.array(v_template)[:, 1], c='b', label='Template Points')
-        ax.scatter(sim_x[:, 0], sim_x[:, 1], c='red', label='Simplex Vertices')
-        ax.legend()
-        # plt.show()
-        plt.close(fig)
 
         # Eliminate duplicates due to numerical precision
         v_template = np.round(v_template, 6)
@@ -316,21 +322,14 @@ class MultidirectionalSimplex:
 
         # Evaluate all template points (Pre-evaluation detection included)
         all_individuals = np.array([Individual.bounded(self.bounds, X=v) for v in v_template_unique])
-        pre_eval_mask, pre_evals = np.vstack([self.problem.detect_repeat_evaluation(v.X) for v in all_individuals]).T
-        if np.any(pre_eval_mask.astype(bool)):
-            pre_eval_mask = pre_eval_mask.astype(bool)
-            eval_list =  all_individuals[~pre_eval_mask]
-            pre_inds_idx = np.where(pre_eval_mask)[0]
+        all_individuals = self.problem.evaluate_batch(all_individuals, n_jobs=self.n_jobs)
 
-            [setattr(all_individuals[idx], 'F', pre_evals[idx]) for idx in pre_inds_idx]
-            all_individuals[~pre_eval_mask] = evals_inparallel(self.problem, eval_list, n_jobs=self.n_jobs, repeat_detector=False)
-        else:
-            all_individuals = evals_inparallel(self.problem, all_individuals, n_jobs=self.n_jobs, repeat_detector=False)
         v0_idx = np.argmin([ind.F for ind in all_individuals])
         v0 = all_individuals[v0_idx]
 
         true_idx = unique_idx[v0_idx]
         if counts[v0_idx] > 1:
+            # Update possible simplexes and choose the best one
             possible_source = [sources[true_idx]]
             possible_alpha = [alphas[true_idx]]
             for dup_idx in duplicated_points:
@@ -339,14 +338,15 @@ class MultidirectionalSimplex:
                         possible_source.append(sources[dup_idx])
                         possible_alpha.append(alphas[dup_idx])
 
-            # Update possible simplecies
-            possible_simplices = []
+            possible_sims = []
             for source_p, alpha_p in zip(possible_source, possible_alpha):
                 new_sim_x = v0.X + alpha_p * (sim_x - sim_x[source_p])
-                possible_simplices.append([Individual.bounded(self.bounds, X=vertex) for vertex in new_sim_x])
-            possible_simplices = [evals(self.problem, simplex) for simplex in possible_simplices]
-            best_sim = np.argmin([np.mean([ind.F for ind in simplex]) for simplex in possible_simplices])
-            self.sim = possible_simplices[best_sim]
+                possible_sims.append([Individual.bounded(self.bounds, X=vertex) for vertex in new_sim_x])
+
+            possible_sims = self.problem.evaluate_batch(np.array(possible_sims).reshape(-1), n_jobs=self.n_jobs)
+            possible_sims = np.array(possible_sims).reshape(-1, len(self.sim)).tolist()
+            best_sim = np.argmin([np.mean([ind.F for ind in simplex]) for simplex in possible_sims])
+            self.sim = possible_sims[best_sim]
         else:
             # Update simplex
             source_p = sources[true_idx]
@@ -355,7 +355,7 @@ class MultidirectionalSimplex:
             self.sim = [Individual.bounded(self.bounds, X=vertex) for vertex in sim_x]
             self.sim = evals(self.problem, self.sim)
         self.history['v0'].append(v0)
-        self.history['sim'].append(all_individuals.tolist()) # TODO: FIX BUG
+        self.history['sim'].append(all_individuals)
         print("Best in template:", v0.X, v0.F)
 
 
