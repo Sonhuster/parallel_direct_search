@@ -20,8 +20,8 @@ if __name__ == '__main__':
                                         bounds=[[-5, -5], [5, 5]],
                                         n_jobs=1)
     algorithm.initialize()
-    for i in range(10):
-        algorithm.next_look_ahead_n_iterations(n_iters=3)
+    for i in range(20):
+        algorithm.next_look_ahead_n_iterations(n_iters=1)
         print("Time:", time.time() - ts, "| Error:", algorithm.history['v0'][-1].F)
 
     # for i in range(30):

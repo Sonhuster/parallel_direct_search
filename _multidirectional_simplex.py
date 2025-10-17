@@ -353,7 +353,17 @@ class MultidirectionalSimplex:
             alpha_p = alphas[true_idx]
             sim_x = v0.X + alpha_p * (sim_x - sim_x[source_p])
             self.sim = [Individual.bounded(self.bounds, X=vertex) for vertex in sim_x]
-            self.sim = evals(self.problem, self.sim)
+            self.sim = self.problem.evaluate_batch(np.array(self.sim), n_jobs=self.n_jobs)
+
+        # Restrict checking contraction simplex of current best simplex
+        contraction = v0.X + self.theta * (sim_x - sim_x[sources[true_idx]])
+        Inds_x = np.array([v.X for v in all_individuals])
+        is_contracted = check_vector_in_list(contraction, Inds_x)
+        if is_contracted:
+            print('Strictly contraction')
+            self.sim = [Individual.bounded(self.bounds, X=vertex) for vertex in contraction]
+            self.sim = self.problem.evaluate_batch(np.array(self.sim), n_jobs=self.n_jobs)
+
         self.history['v0'].append(v0)
         self.history['sim'].append(all_individuals)
         print("Best in template:", v0.X, v0.F)
@@ -391,3 +401,19 @@ def evals(problem, individuals: np.ndarray|list|Individual, repeat_detector=True
         return [eval(problem, individual) for individual in individuals]
     else:
         raise 'Wrong argument passed'
+
+def check_vector_in_list(vec, list_of_vecs):
+    vec = np.asarray(vec)
+    list_of_vecs = np.asarray(list_of_vecs)
+    for i in range(1000):
+        if i > 500:
+            print("Too many iterations in checking vector in list.")
+        vec_ = np.prod(vec + i, axis=1)
+        list_of_vecs_ = np.prod(list_of_vecs + i, axis=1)
+
+        if len(vec_) == len(np.unique(vec_)) and len(list_of_vecs_) == len(np.unique(list_of_vecs_)):
+            break
+        else:
+            continue
+
+    return np.isin(vec_, list_of_vecs_).all()
