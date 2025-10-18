@@ -2,31 +2,50 @@ import numpy as np
 import matplotlib.pyplot as plt
 from _multidirectional_simplex import MultidirectionalSimplex
 from _multidirectional_simplex import MyProblem
-
+from scipy.optimize import minimize
+from functools import partial
 import time
 
 def f(x):
     # time.sleep(0.5)
-    f = (x[0] - 2) ** 2 + (x[1] + 3) ** 2 + np.sin(3 * x[0]) * np.cos(3 * x[1])
+    f = 100 * (x[1] - x[0]**2)**2 + (1 - x[0])**2
     return f
+
+def callback(xk, option):
+    option['x'].append(xk)
+    option['time'].append(time.time() - option['time_start'])
+    option['error'].append(f(xk))
 
 if __name__ == '__main__':
     ts = time.time()
     # ---- Run optimization ----
     problem = MyProblem(error_func=f, n_var=2)
     algorithm = MultidirectionalSimplex(problem=problem,
-                                        x0= np.array([0, 0]),
-                                        initial_simplex=np.array([[0.0, 0.0], [0.25, 0.0], [0.25, 0.25]]),
+                                        x0= np.array([-1.2, 1]),
+                                        # initial_simplex=np.array([[0.0, 0.0], [0.25, 0.0], [0.25, 0.25]]),
                                         bounds=[[-5, -5], [5, 5]],
                                         n_jobs=1)
     algorithm.initialize()
-    for i in range(20):
-        algorithm.next_look_ahead_n_iterations(n_iters=1)
-        print("Time:", time.time() - ts, "| Error:", algorithm.history['v0'][-1].F)
 
-    # for i in range(30):
+    f_tol = 1e-6
+
+    _MDS = {'time': [], 'error': []}
+    for i in range(50):
+        algorithm.next_look_ahead_n_iterations(n_iters=2)
+        _MDS['time'].append(time.time() - ts)
+        _MDS['error'].append(algorithm.history['v0'][-1].F)
+        print("Time:", time.time() - ts, "| Error:", algorithm.history['v0'][-1].F)
+        if algorithm.history['v0'][-1].F <= f_tol:
+            break
+
+    # for i in range(80):
     #     algorithm.next()   # step forward explicitly
     #     print("Time:", time.time() - ts, "| Error:", algorithm.history['v0'][-1].F)
+    #     _MDS['time'].append(time.time() - ts)
+    #     _MDS['error'].append(algorithm.history['v0'][-1].F)
+    #     print("Time:", time.time() - ts, "| Error:", algorithm.history['v0'][-1].F)
+    #     if algorithm.history['v0'][-1].F <= f_tol:
+    #         break
 
     print("Best Solution:", algorithm.history['v0'][-1].X, "f(x)=", algorithm.history['v0'][-1].F)
 
@@ -38,6 +57,13 @@ if __name__ == '__main__':
     best_X_traj = np.array([vertex.X for vertex in algorithm.history['v0']])
     best_F_traj = np.array([vertex.F for vertex in algorithm.history['v0']])
 
+    _NM = {'time': [], 'x': [], 'error': [], 'time_start': time.time()}
+    custom_callback = partial(callback, option=_NM)
+    res = minimize(f, x0=np.array([-1.2, 1]), method='Nelder-Mead',
+                   callback=custom_callback, options={'fatol': f_tol, 'maxiter': 73})
+
+    X_traj_NM = np.array(_NM['x'])
+
     # Create contour of the function
     x = np.linspace(-5, 5, 200)
     y = np.linspace(-5, 5, 200)
@@ -48,14 +74,27 @@ if __name__ == '__main__':
     plt.colorbar(label="f(x,y)")
 
     # All evaluated points (red dots)
-    # plt.scatter(np.array(all_X)[:, 0], np.array(all_X)[:, 1], c="red", s=20, label="Evaluations", alpha=0.4)
+    plt.scatter(np.array(all_X)[:, 0], np.array(all_X)[:, 1], c="red", s=20, label="Evaluations", alpha=0.4)
 
     # Best solution trajectory (white line with markers)
     plt.plot(best_X_traj[:, 0], best_X_traj[:, 1], '-o', c="white", markersize=6,
              markeredgecolor="black", label="Best trajectory")
+    # plt.plot(X_traj_NM[:, 0], X_traj_NM[:, 1], '-x', c="yellow", markersize=10,
+    #          markeredgecolor="red", label="Nelder-Mead Solution")
 
     plt.title("Multidirectional Simplex Search Optimization Trajectory")
     plt.xlabel("x")
     plt.ylabel("y")
     plt.legend()
+    plt.show()
+
+    fig = plt.figure()
+    plt.plot(np.array(_MDS['time']) * 1000, _MDS['error'], '-o', label='Multidirectional Simplex')
+    plt.plot(np.array(_NM['time']) * 1000, _NM['error'], '-x', label='Nelder-Mead')
+    plt.yscale('log')
+    plt.xlabel('Time (s)')
+    plt.ylabel('Error (f(x))')
+    plt.title('Error vs Time Comparison')
+    plt.legend()
+    plt.grid(True)
     plt.show()

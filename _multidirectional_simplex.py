@@ -358,7 +358,7 @@ class MultidirectionalSimplex:
         # Restrict checking contraction simplex of current best simplex
         contraction = v0.X + self.theta * (sim_x - sim_x[sources[true_idx]])
         Inds_x = np.array([v.X for v in all_individuals])
-        is_contracted = check_vector_in_list(contraction, Inds_x)
+        is_contracted = check_vector_in_list(contraction, Inds_x, n_jumps=n_iters)
         if is_contracted:
             print('Strictly contraction')
             self.sim = [Individual.bounded(self.bounds, X=vertex) for vertex in contraction]
@@ -402,18 +402,41 @@ def evals(problem, individuals: np.ndarray|list|Individual, repeat_detector=True
     else:
         raise 'Wrong argument passed'
 
-def check_vector_in_list(vec, list_of_vecs):
-    vec = np.asarray(vec)
-    list_of_vecs = np.asarray(list_of_vecs)
-    for i in range(1000):
-        if i > 500:
-            print("Too many iterations in checking vector in list.")
-        vec_ = np.prod(vec + i, axis=1)
-        list_of_vecs_ = np.prod(list_of_vecs + i, axis=1)
 
-        if len(vec_) == len(np.unique(vec_)) and len(list_of_vecs_) == len(np.unique(list_of_vecs_)):
-            break
+def check_vector_in_list(vec, list_of_vecs, n_jumps, max_iter=1000):
+    # Take (15, 7) decimal precision into account in case of jumped (4, 3) iterations
+    n_floating = 15 if n_jumps > 3 else 7
+    vec = np.asarray(np.round(vec, n_floating))
+    list_of_vecs = np.unique(np.asarray(np.round(list_of_vecs, n_floating)), axis=0)
+
+    # Base case: empty vecs
+    if vec.size == 0:
+        return np.array([], dtype=bool)
+
+    # --- Randomized hashing ---
+    for i in range(max_iter):
+        if i > 500 and i % 100 == 0:
+            print(f"Warning: iteration {i} — still searching for unique hash.")
+        portion = np.random.rand(vec.shape[1])
+        vec_ = np.prod(vec + portion, axis=1)
+        list_of_vecs_ = np.prod(list_of_vecs + portion, axis=1)
+
+        vec_ = np.round(vec_, n_floating)
+        list_of_vecs_ = np.round(list_of_vecs_, n_floating)
+
+        uniq_list_vecs, idx = np.unique(list_of_vecs_, axis=0, return_index=True)
+        uniq_vec = np.unique(vec_, axis=0)
+
+        if len(vec_) == len(uniq_vec) and len(list_of_vecs_) == len(uniq_list_vecs):
+            return np.isin(vec_, list_of_vecs_).all()
+        elif len(vec_) == len(uniq_vec) and len(list_of_vecs_) > len(uniq_list_vecs) * 0.9:
+            mask1 = np.isin(vec, list_of_vecs[idx])
+
+            r_idx = np.setdiff1d(np.arange(len(vec)), idx)
+            mask2 = np.isin(vec, list_of_vecs[r_idx])
+
+            return (mask1 | mask2).all()
         else:
             continue
-
-    return np.isin(vec_, list_of_vecs_).all()
+    else:
+        raise Exception("Cannot find unique hash for the given vectors.")
